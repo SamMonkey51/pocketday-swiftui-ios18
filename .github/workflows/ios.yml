@@ -1,0 +1,54 @@
+name: iOS 18 Simulator
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 20
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      APP_PATH: build/Build/Products/Release-iphonesimulator/PocketDay.app
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Build for iOS Simulator
+        run: |
+          xcodebuild -version
+          xcodebuild build \
+            -project PocketDay.xcodeproj \
+            -scheme PocketDay \
+            -configuration Release \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO
+          test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP_PATH/Info.plist")" = '18.0'
+
+      - name: Launch on iOS 18.5
+        run: |
+          simulator=$(xcrun simctl create PocketDay-CI \
+            com.apple.CoreSimulator.SimDeviceType.iPhone-16 \
+            com.apple.CoreSimulator.SimRuntime.iOS-18-5)
+          xcrun simctl boot "$simulator"
+          xcrun simctl bootstatus "$simulator" -b
+          xcrun simctl install "$simulator" "$APP_PATH"
+          xcrun simctl launch "$simulator" com.example.pocketday
+
+      - name: Archive Simulator app
+        run: ditto -c -k --keepParent "$APP_PATH" build/PocketDay-iOS-Simulator.zip
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: PocketDay-iOS-Simulator
+          path: build/PocketDay-iOS-Simulator.zip
+          if-no-files-found: error
+          compression-level: 0
