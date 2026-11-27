@@ -1,4 +1,4 @@
-name: iOS 18 Simulator
+name: iOS 18 Build
 
 on:
   push:
@@ -50,5 +50,44 @@ jobs:
         with:
           name: PocketDay-iOS-Simulator
           path: build/PocketDay-iOS-Simulator.zip
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Build unsigned iOS device app
+        run: |
+          xcodebuild build \
+            -project PocketDay.xcodeproj \
+            -scheme PocketDay \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            ARCHS=arm64 \
+            CODE_SIGNING_ALLOWED=NO \
+            'OTHER_LDFLAGS=$(inherited) -Wl,-no_adhoc_codesign'
+
+      - name: Verify and package unsigned IPA
+        run: |
+          app=build/Build/Products/Release-iphoneos/PocketDay.app
+          binary="$app/PocketDay"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$app/Info.plist")" = '18.0'
+          test "$(/usr/libexec/PlistBuddy -c 'Print :DTPlatformName' "$app/Info.plist")" = 'iphoneos'
+          test "$(xcrun lipo -archs "$binary")" = 'arm64'
+          load_commands=$(xcrun otool -l "$binary")
+          if grep -q LC_CODE_SIGNATURE <<< "$load_commands"; then
+            echo 'The executable contains a code signature.' >&2
+            exit 1
+          fi
+          test ! -e "$app/_CodeSignature"
+          test ! -e "$app/embedded.mobileprovision"
+
+          mkdir -p build/ipa/Payload
+          ditto "$app" build/ipa/Payload/PocketDay.app
+          ditto -c -k --norsrc --keepParent build/ipa/Payload build/PocketDay-iOS-Unsigned.ipa
+          unzip -tq build/PocketDay-iOS-Unsigned.ipa
+
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: PocketDay-iOS-Unsigned
+          path: build/PocketDay-iOS-Unsigned.ipa
           if-no-files-found: error
           compression-level: 0
